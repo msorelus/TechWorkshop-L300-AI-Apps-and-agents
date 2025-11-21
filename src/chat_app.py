@@ -14,7 +14,7 @@ import orjson  # Faster JSON library
 from openai import AzureOpenAI
 from app.tools.aiSearchTools import product_recommendations
 from app.tools.understandImage import get_image_description
-#from app.tools.singleAgentExample import generate_response
+from app.tools.singleAgentExample import generate_response
 from azure.core.credentials import AzureKeyCredential
 import asyncio
 import datetime
@@ -29,7 +29,8 @@ from app.tools.imageCreationTool import create_image
 import logging
 import aiohttp
 from concurrent.futures import ThreadPoolExecutor
-# from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
+from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
+
 
 # Import modularized utilities and services
 from utils.env_utils import load_env_vars, validate_env_vars
@@ -56,7 +57,9 @@ thread_pool = ThreadPoolExecutor(max_workers=4)
 
 application_insights_connection_string = os.environ["APPLICATIONINSIGHTS_CONNECTION_STRING"]
 configure_azure_monitor(connection_string=application_insights_connection_string)
-# OpenAIInstrumentor().instrument()
+OpenAIInstrumentor().instrument()
+os.environ["AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED"] = "true"
+
 
 scenario = os.path.basename(__file__)
 tracer = trace.get_tracer(__name__)
@@ -399,9 +402,12 @@ async def websocket_endpoint(websocket: WebSocket):
     logger.info("WebSocket Session Started")
     
     await websocket.accept()
-    thread = project_client.agents.threads.create()
+    # Only create threads if needed (commented out for single-agent mode)
+    # thread = project_client.agents.threads.create()
+    thread = None
     chat_history: Deque[Tuple[str, str]] = deque(maxlen=5)
-    customer_loyalty_thread = project_client.agents.threads.create()
+    # customer_loyalty_thread = project_client.agents.threads.create()
+    customer_loyalty_thread = None
     
     # Flag to track if customer loyalty task has been executed
     customer_loyalty_executed = False
@@ -540,15 +546,15 @@ async def websocket_endpoint(websocket: WebSocket):
                 logger.error("Error parsing conversation history", exc_info=True)
                 chat_history.append(("user", user_message))
             
-            await websocket.send_text(fast_json_dumps({"answer": "This application is not yet ready to serve results. Please check back later.", "agent": None, "cart": persistent_cart}))
+            # await websocket.send_text(fast_json_dumps({"answer": "This application is not yet ready to serve results. Please check back later.", "agent": None, "cart": persistent_cart}))
 
-            # # Single-agent example
-            # try:
-            #     response = generate_response(user_message)
-            #     await websocket.send_text(fast_json_dumps({"answer": response, "agent": "single", "cart": persistent_cart}))
-            # except Exception as e:
-            #     logger.error("Error during single-agent response generation", exc_info=True)
-            #     await websocket.send_text(fast_json_dumps({"answer": "Error during single-agent response generation", "error": str(e), "cart": persistent_cart}))
+            # Single-agent example
+            try:
+                response = generate_response(user_message)
+                await websocket.send_text(fast_json_dumps({"answer": response, "agent": "single", "cart": persistent_cart}))
+            except Exception as e:
+                logger.error("Error during single-agent response generation", exc_info=True)
+                await websocket.send_text(fast_json_dumps({"answer": "Error during single-agent response generation", "error": str(e), "cart": persistent_cart}))
 
             # # Run handoff service
             # try:
